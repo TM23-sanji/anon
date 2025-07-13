@@ -6,20 +6,28 @@ async function ensureTTL() {
   const db = (await clientPromise).db();
   const collection = db.collection('messages');
 
-  const indexes = await collection.indexes();
-  const ttlIndex = indexes.find(idx => idx.key?.createdAt === 1 && idx.name === 'createdAt_1');
+  try {
+    const indexes = await collection.indexes();
+    const ttlIndex = indexes.find(
+      idx => idx.key?.createdAt === 1 && idx.name === 'createdAt_1'
+    );
 
-  if (!ttlIndex) {
-    await collection.createIndex({ createdAt: 1 }, { expireAfterSeconds: 86400 });
-  } else if (ttlIndex.expireAfterSeconds !== 86400) {
-    await collection.dropIndex('createdAt_1');
-    await collection.createIndex({ createdAt: 1 }, { expireAfterSeconds: 86400 });
+    if (!ttlIndex) {
+      await collection.createIndex({ createdAt: 1 }, { expireAfterSeconds: 86400 });
+    } else if (ttlIndex.expireAfterSeconds !== 86400) {
+      await collection.dropIndex('createdAt_1');
+      await collection.createIndex({ createdAt: 1 }, { expireAfterSeconds: 86400 });
+    }
+  } catch (err: any) {
+    if (err.codeName === 'NamespaceNotFound') {
+      // Collection does not exist yet. Will be created on first insert.
+      return;
+    }
+    throw err;
   }
 }
 
 export async function POST(req: NextRequest) {
-  await ensureTTL();
-
   const {
     recipientAnonCode,
     senderName,
@@ -41,8 +49,11 @@ export async function POST(req: NextRequest) {
     recipientUsernameHash: recipientHash,
     encryptedSenderName: encrypt(senderName?.trim() || 'Anonymous'),
     encryptedMessageContent: encrypt(messageContent),
-    createdAt: new Date()
+    createdAt: new Date(),
   });
+
+  // Only after insert (collection now exists) ensure TTL index
+  await ensureTTL();
 
   return NextResponse.json({ message: 'Message sent' }, { status: 201 });
 }
