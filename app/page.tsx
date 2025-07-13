@@ -1,102 +1,191 @@
-import Image from "next/image";
+'use client';
 
-export default function Home() {
+import { useState, useEffect } from 'react';
+import { Send, Search } from 'lucide-react';
+import { formatDistanceToNow } from 'date-fns';
+
+interface Message {
+  senderName: string;
+  messageText: string;
+  createdAt: string;
+}
+
+export default function HomePage() {
+  const [myAnonCode, setMyAnonCode] = useState('');
+  const [inboxMessages, setInboxMessages] = useState<Message[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  const [sendInput, setSendInput] = useState('');
+  const [sendStatus, setSendStatus] = useState<string | null>(null);
+  const [isFetching, setIsFetching] = useState(false);
+  const [lastSentTime, setLastSentTime] = useState<number>(0);
+
+  const isRateLimited = () => {
+    const now = Date.now();
+    return (now - lastSentTime) < 5000; // 5 second client-side cooldown
+  };
+
+  async function handleFetchMessages() {
+    if (!myAnonCode.trim()) {
+      setError('Please enter your Anon Code.');
+      return;
+    }
+
+    setIsFetching(true);
+    setError(null);
+
+    try {
+      const res = await fetch(`/api/fetch-message?anonCode=${encodeURIComponent(myAnonCode.trim())}`);
+      const data = await res.json();
+      if (res.ok) {
+        setInboxMessages(data.messages);
+        setError(null);
+      } else {
+        setError(data.error ?? 'Failed to fetch messages');
+      }
+    } catch {
+      setError('Error fetching messages');
+    } finally {
+      setIsFetching(false);
+    }
+  }
+
+  // Auto-clear status/error after 3 seconds
+  useEffect(() => {
+    if (sendStatus || error) {
+      const timer = setTimeout(() => {
+        setSendStatus(null);
+        setError(null);
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [sendStatus, error]);
+
+  async function handleSend() {
+    setSendStatus(null);
+    setError(null);
+
+    if (isRateLimited()) {
+      setError('You are sending too quickly. Please wait a few seconds.');
+      return;
+    }
+
+    const trimmed = sendInput.trim();
+    const parts = trimmed.match(/^@(\S+)\s+@(\S+)\s+(.+)$/);
+
+    if (!parts) {
+      setError('Format: @recipient @sender message');
+      return;
+    }
+
+    const [, recipientAnonCode, senderUsername, messageContent] = parts;
+
+    // Validate lengths
+    if (senderUsername.length > 50) {
+      setError('Sender name too long (max 50 characters)');
+      return;
+    }
+
+    if (messageContent.length > 500) {
+      setError('Message too long (max 500 characters)');
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/send-message', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          recipientAnonCode,
+          senderName: senderUsername,
+          messageContent,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        setSendStatus('Message sent!');
+        setSendInput('');
+        setLastSentTime(Date.now());
+      } else {
+        setError(data.error ?? 'Failed to send');
+      }
+    } catch {
+      setError('Error sending message');
+    }
+  }
+
   return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm/6 text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-[family-name:var(--font-geist-mono)] font-semibold">
-              app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+    <div className="flex flex-col min-h-screen bg-stone-50 dark:bg-stone-900 text-stone-900 dark:text-stone-100">
+      <main className="flex-1 max-w-2xl w-full mx-auto p-4 pb-24">
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
+        {/* Anon Code Input with Search */}
+        <div className="mb-6">
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={myAnonCode}
+              onChange={(e) => setMyAnonCode(e.target.value)}
+              placeholder="eg: agentX (your anon code)"
+              className="flex-1 border border-stone-300 dark:border-stone-700 rounded-lg px-3 py-2 bg-stone-100 dark:bg-stone-800 placeholder-stone-400 dark:placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
             />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+            <button
+              onClick={handleFetchMessages}
+              disabled={isFetching}
+              className="text-white rounded-lg p-2 transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Search className="w-5 h-5" />
+            </button>
+          </div>
         </div>
+
+        {/* Inbox */}
+        {myAnonCode && (
+          <section className="mb-16">
+            {error && <p className="text-red-500 mb-2">{error}</p>}
+            {inboxMessages.length === 0 && !error && (
+              <p className="text-stone-500 dark:text-stone-400">No messages yet. Share your code to receive some!</p>
+            )}
+            <div className="space-y-3">
+              {inboxMessages.map((msg, idx) => (
+                <div
+                  key={idx}
+                  className="bg-stone-100 dark:bg-stone-800 border border-stone-300 dark:border-stone-700 rounded-lg p-4 shadow-sm transition"
+                >
+                  <p className="font-semibold text-stone-700 dark:text-stone-200">
+                    <span className="text-stone-500">From:</span> {msg.senderName}
+                  </p>
+                  <p className="mt-1 text-stone-800 dark:text-stone-100">{msg.messageText}</p>
+                  <p className="text-xs text-stone-500 mt-2">
+                    {formatDistanceToNow(new Date(msg.createdAt), { addSuffix: true })}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
       </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
+
+      {/* Fixed single-line Send Bar */}
+      <footer className="fixed bottom-0 inset-x-0 bg-white dark:bg-stone-900 border-t border-stone-300 dark:border-stone-700 shadow-lg px-4 py-3">
+        <div className="max-w-2xl mx-auto flex items-center gap-2">
+          <input
+            type="text"
+            placeholder="@receiverCode @senderCode msg"
+            value={sendInput}
+            onChange={(e) => setSendInput(e.target.value)}
+            className="flex-1 border border-stone-300 dark:border-stone-700 rounded-lg px-4 py-2 bg-white dark:bg-stone-800 placeholder-stone-400 dark:placeholder-stone-500 text-stone-900 dark:text-stone-100 focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
           />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
+          <button
+            onClick={handleSend}
+            className="text-white rounded-lg p-2 transition"
+          >
+            <Send className="w-5 h-5" />
+          </button>
+        </div>
+        {sendStatus && <p className="mt-2 text-green-600 text-sm text-center">{sendStatus}</p>}
+        {error && <p className="mt-2 text-red-500 text-sm text-center">{error}</p>}
       </footer>
     </div>
   );
