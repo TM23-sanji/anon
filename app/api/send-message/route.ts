@@ -18,12 +18,8 @@ async function ensureTTL() {
       await collection.dropIndex('createdAt_1');
       await collection.createIndex({ createdAt: 1 }, { expireAfterSeconds: 86400 });
     }
-  } catch (err: any) {
-    if (err.codeName === 'NamespaceNotFound') {
-      // Collection does not exist yet. Will be created on first insert.
-      return;
-    }
-    throw err;
+  } catch  {
+    return "Some error occurred while ensuring TTL index";
   }
 }
 
